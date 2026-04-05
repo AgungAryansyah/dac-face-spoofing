@@ -54,9 +54,9 @@ def tune_threshold_with_unknown_samples(use_wandb=True):
     
     print("\nLoading unknown class samples (fake_unknown)...")
     unknown_dataset = SpoofingDataset(
-        data_dir='data/train/fake_unknown',
+        data_dir='data/train',
         transform=get_val_transforms(config.image_size),
-        class_mapping=None
+        class_mapping={'fake_unknown': 5}
     )
     
     unknown_loader = DataLoader(
