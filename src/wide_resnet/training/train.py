@@ -10,10 +10,12 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 import numpy as np
+import wandb
 
 from wide_resnet.config.config import get_config
 from wide_resnet.data.dataset import get_train_dataset, get_val_dataset
 from wide_resnet.models.wide_resnet_model import create_model
+from utils.wandb_utils import get_wandb_config, init_wandb, log_metrics, finish_wandb
 
 
 def calculate_class_weights(dataset):
@@ -86,7 +88,7 @@ def validate(model, dataloader, criterion, device):
     return epoch_loss, epoch_acc
 
 
-def train_model(config=None):
+def train_model(config=None, use_wandb=True):
     if config is None:
         config = get_config()
     
@@ -95,6 +97,19 @@ def train_model(config=None):
     
     torch.manual_seed(config.random_seed)
     np.random.seed(config.random_seed)
+    
+    if use_wandb:
+        wandb_config = get_wandb_config()
+        wandb_run = init_wandb(wandb_config, run_name='wide_resnet-training', model_type='wide_resnet')
+        if wandb_run:
+            wandb.config.update({
+                'learning_rate': config.learning_rate,
+                'batch_size': config.batch_size,
+                'num_epochs': config.num_epochs,
+                'freeze_ratio': config.freeze_ratio,
+                'model_name': config.model_name,
+                'image_size': config.image_size
+            })
     
     print("Loading datasets...")
     train_dataset = get_train_dataset(config)
@@ -123,6 +138,9 @@ def train_model(config=None):
     print("\nCreating model...")
     model = create_model(config)
     model = model.to(config.device)
+    
+    if use_wandb and wandb.run:
+        wandb.watch(model, log='all', log_freq=100)
     
     class_weights = calculate_class_weights(train_dataset)
     class_weights = class_weights.to(config.device)
@@ -160,6 +178,15 @@ def train_model(config=None):
         print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
         print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
         
+        if use_wandb and wandb.run:
+            log_metrics({
+                'train/loss': train_loss,
+                'train/accuracy': train_acc,
+                'val/loss': val_loss,
+                'val/accuracy': val_acc,
+                'epoch': epoch
+            })
+        
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             patience_counter = 0
@@ -182,6 +209,11 @@ def train_model(config=None):
             break
     
     print(f"\nTraining complete! Best val accuracy: {best_val_acc:.2f}%")
+    
+    if use_wandb and wandb.run:
+        wandb.run.summary['best_val_accuracy'] = best_val_acc
+        finish_wandb()
+    
     return model
 
 

@@ -7,16 +7,22 @@ import pickle
 import xgboost as xgb
 import torch
 from torch.utils.data import DataLoader
+import wandb
 
 from ensemble.config.config import get_config
 from ensemble.feature_extractor import FeatureExtractor
 from ensemble.msp_rejection import find_best_threshold_f1, calculate_rejection_metrics, apply_msp_rejection
 from utils.dataset import SpoofingDataset
 from utils.augmentation import get_val_transforms
+from utils.wandb_utils import get_wandb_config, init_wandb, log_metrics, finish_wandb
 
 
-def tune_threshold_with_unknown_samples():
+def tune_threshold_with_unknown_samples(use_wandb=True):
     config = get_config()
+    
+    if use_wandb:
+        wandb_config = get_wandb_config()
+        wandb_run = init_wandb(wandb_config, run_name='msp-threshold-tuning', model_type='threshold')
     
     print("Loading XGBoost model...")
     with open(config.model_save_path, 'rb') as f:
@@ -96,6 +102,18 @@ def tune_threshold_with_unknown_samples():
     print(f"Known accuracy: {eval_metrics['known_accuracy']:.4f}")
     print(f"Unknown recall: {eval_metrics['unknown_recall']:.4f}")
     print(f"Total accuracy: {eval_metrics['total_accuracy']:.4f}")
+    
+    if use_wandb and wandb.run:
+        log_metrics({
+            'threshold/best_threshold': best_threshold,
+            'threshold/f1_score': metrics['f1_score'],
+            'threshold/precision': metrics['precision'],
+            'threshold/recall': metrics['recall'],
+            'threshold/known_accuracy': eval_metrics['known_accuracy'],
+            'threshold/unknown_recall': eval_metrics['unknown_recall'],
+            'threshold/total_accuracy': eval_metrics['total_accuracy']
+        })
+        finish_wandb()
     
     config_path = Path(config.model_save_path).parent / 'msp_threshold.txt'
     with open(config_path, 'w') as f:

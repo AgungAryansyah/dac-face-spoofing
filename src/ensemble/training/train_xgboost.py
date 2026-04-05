@@ -7,9 +7,11 @@ import numpy as np
 import xgboost as xgb
 import pickle
 from sklearn.metrics import accuracy_score, classification_report
+import wandb
 
 from ensemble.config.config import get_config
 from ensemble.feature_extractor import extract_and_save_features
+from utils.wandb_utils import get_wandb_config, init_wandb, log_metrics, finish_wandb
 
 
 def load_features(config, split='train'):
@@ -28,11 +30,17 @@ def load_features(config, split='train'):
     return features, labels
 
 
-def train_xgboost(config=None):
+def train_xgboost(config=None, use_wandb=True):
     if config is None:
         config = get_config()
     
     os.makedirs(Path(config.model_save_path).parent, exist_ok=True)
+    
+    if use_wandb:
+        wandb_config = get_wandb_config()
+        wandb_run = init_wandb(wandb_config, run_name='xgboost-ensemble', model_type='ensemble')
+        if wandb_run:
+            wandb.config.update(config.xgboost_params)
     
     print("Loading training features...")
     X_train, y_train = load_features(config, split='train')
@@ -66,10 +74,20 @@ def train_xgboost(config=None):
     accuracy = accuracy_score(y_val, y_pred)
     print(f"\nValidation Accuracy: {accuracy:.4f}")
     
+    if use_wandb and wandb.run:
+        log_metrics({
+            'ensemble/val_accuracy': accuracy,
+            'ensemble/feature_dim': X_train.shape[1]
+        })
+    
     print("\nSaving model...")
     with open(config.model_save_path, 'wb') as f:
         pickle.dump(bst, f)
     print(f"Model saved to {config.model_save_path}")
+    
+    if use_wandb and wandb.run:
+        wandb.run.summary['val_accuracy'] = accuracy
+        finish_wandb()
     
     return bst
 
